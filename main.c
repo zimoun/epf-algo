@@ -21,9 +21,10 @@ dual add(dual, dual);
 dual sub(dual, dual);
 dual div(dual, dual);
 
-int main () {
-    printf("Hi");
+#define NEXP 20
+dual exponential(dual);
 
+int main () {
     /* the value we are interrested in */
     float a = 2.1;
 
@@ -37,13 +38,11 @@ int main () {
     print(z);
     print(c);
 
-    print(mul(z, c));
-    print(add(z, z));
-    print(sub(c, z));
-    print(div(add(z, c), sub(c, z)));
+    print(exponential(z));
+    print(exponential(add(mul(mul(c, z), z), c)));
 
     printf("Bye.");
-    return 0;
+    return  0;
   }
 
 
@@ -110,4 +109,36 @@ dual div(dual z1, dual z2) {
     z.deriv = ((z1.deriv * z2.value) - (z1.value * z2.deriv)) / (z2.value * z2.value);
 
     return z;
+}
+
+dual exponential(dual x) {
+
+    /* temporary variables */
+    dual expx  = newcst(1., "");
+    dual xk    = newcst(1., "");
+    dual kfac  = newcst(1., "");
+
+    float k;
+    for (k=1; k<=NEXP; k++) {
+        dual kk = newcst(k, "");
+
+        xk   = mul(xk, x);      /* x, x*x, x*x*x, etc. => eval x^k */
+        kfac = mul(kfac, kk);   /* 1, 1*2, 1*2*3, etc. => eval k!  */
+
+        dual term_k = div(xk, kfac);
+
+        /* update the Sum with another term */
+        expx = add(expx, term_k);
+
+        /* to avoid segmentation fault (because of ugly C)   */
+        /* instead of accumalating all the ( and ) and +,*,/ */
+        sprintf(expx.name, "");
+        sprintf(xk.name, "");
+        sprintf(kfac.name, "");
+        sprintf(kk.name, "");
+    }
+
+    /* pretty print the name */
+    sprintf(expx.name, "~(e^(%s))", x.name);
+    return expx;
 }
