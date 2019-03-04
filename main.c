@@ -24,7 +24,12 @@ dual div(dual, dual);
 #define NEXP 20
 dual exponential(dual);
 
+#include <math.h>
+dual dexp(dual);
+
 int main () {
+    printf("Hi");
+
     /* the value we are interrested in */
     float a = 2.1;
 
@@ -38,8 +43,11 @@ int main () {
     print(z);
     print(c);
 
-    print(exponential(z));
+    printf("\n# by +,*,-,/\n");
     print(exponential(add(mul(mul(c, z), z), c)));
+
+    printf("\n# by math.h\n");
+    print(dexp(add(mul(mul(c, z), z), c)));
 
     printf("Bye.");
     return  0;
@@ -141,4 +149,14 @@ dual exponential(dual x) {
     /* pretty print the name */
     sprintf(expx.name, "~(e^(%s))", x.name);
     return expx;
+}
+
+dual dexp(dual u) {
+    dual z;
+    sprintf(z.name, "(e^(%s))", u.name);
+
+    z.value = exp(u.value);
+    z.deriv = u.deriv * z.value;
+
+    return z;
 }
