@@ -1,0 +1,21 @@
+
+
+Le document est écrit avec [[https://www.gnu.org/software/emacs/][GNU Emacs]] et [[https://orgmode.org/][Org-mode]]. À partir d'un unique
+fichier source =example.org= tout est généré avec la commande:
+
+#+name: shell:generate-all
+#+begin_src shell :eval no
+  emacs -batch example.org -f org-babel-execute-buffer
+#+end_src
+ou en ouvrant le document =example.org= avec Emacs puis en pressant
+=Control c Control v b=.
+
+Le résultat est servi avec les GitHub pages: [[https://zimoun.github.io/epf-algo/example.html][voir ici]].
+
+
+Il n'est pas conseillé d'ouvrir le fichier =example.org= car la
+visualisation de GitHub ne rend pas compte de toutes les fonctionnalités
+du fichier =.org=. Même le format [[https://raw.githubusercontent.com/zimoun/epf-algo/master/example.org][raw]] est plus lisible.
+
+Le plus adéquat est d'ouvrir le fichier =example.org= avec Emacs et de
+le parcourir. ;-)

@@ -25,6 +25,8 @@ dual div(dual, dual);
 dual exponential(dual);
 
 int main () {
+    printf("Hi");
+
     /* the value we are interrested in */
     float a = 2.1;
 
