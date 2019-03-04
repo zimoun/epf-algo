@@ -14,6 +14,7 @@ typedef struct {
       /* defined after the main    */
 dual newvar(float, char*);
 dual newcst(float, char*);
+void print(dual);
 
 int main () {
     printf("Hi");
@@ -29,10 +30,7 @@ int main () {
     z = newvar(a, "LE nome bien");
 
     /* display the dual number */
-    printf("\n");
-    printf("\tName : %s\n", z.name);
-    printf("\tValue: %f\n", z.value);
-    printf("\tDeriv: %f\n", z.deriv);
+    print(z);
 
     printf("Bye.");
     return 0;
@@ -55,4 +53,11 @@ dual newcst(float val, char* avoile) {
     z.value = val;
     z.deriv = 0.;
     return z;
+}
+
+void print(dual z) {
+    printf("\n");
+    printf("\tName : %s\n", z.name);
+    printf("\tValue: %f\n", z.value);
+    printf("\tDeriv: %f\n", z.deriv);
 }
