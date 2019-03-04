@@ -1,0 +1,1390 @@
+# -*- mode: org ; coding: utf-8 -*-
+#+STARTUP: content hideblocks
+
+#+TITLE: Calcul de Dérivées
+#+AUTHOR: simon tournier
+#+EMAIL: simon dot tournier at univ dash paris dash diderot dot fr
+
+# Jump to the real beginning: C-x ]
+
+# ###
+#
+# We use an external library to highlight the snippets of code.
+# It is particulary useful for Diff outputs.
+# However, nothing prevents that it will still work a couple of months
+# after now (28 Feb 2019).
+# Same the org.css theme.
+#
+#+HTML_HEAD: <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.10.0/styles/github.min.css" />
+#+HTML_HEAD: <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.10.0/highlight.min.js"></script>
+#+HTML_HEAD: <script>var hlf=function(){Array.prototype.forEach.call(document.querySelectorAll("pre.src"),function(t){var e;e=t.getAttribute("class"),e=e.replace(/src-(\w+)/,"src-$1 $1"),console.log(e),t.setAttribute("class",e),hljs.highlightBlock(t)})};addEventListener("DOMContentLoaded",hlf);</script>
+#
+#+HTML_HEAD: <link rel="stylesheet" type="text/css" href="https://gongzhitaao.org/orgcss/org.css" />
+#
+# ###
+
+# open the link in other webrowser tab
+#+HTML_HEAD: <base target="_blank">
+
+
+#+name: runner
+#+begin_src emacs-lisp :exports none :results none
+  ;; Adapt this line to your needs
+  ;; change "~/.emacs.d/elpa/htmlize-20180923.1829" to your path to htmlize
+  (setq path-to-htmlize  "/tmp/emacs-htmlize/")
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  (setq config
+        (make-progress-reporter "Configuration..."))
+
+  (add-to-list 'load-path
+               path-to-htmlize)
+  (setq org-src-fontify-natively t)
+
+  (org-babel-do-load-languages
+   'org-babel-load-languages '((C . t)
+                               (shell . t)
+                               (scheme . t)
+                               ))
+  (setq org-confirm-babel-evaluate nil)
+
+  (setq org-link-file-path-type 'relative)
+
+  ;; remove annoying message with org-id-location
+  (setq org-id-track-globally nil)
+
+  (setq make-backup-files nil)
+  (make-directory "Supplementary" t)
+
+  (message "%s" (org-version nil t nil))
+  (progress-reporter-done config)
+
+
+  (let ((clean-prev (make-progress-reporter "Clean all previous results...")))
+    (org-babel-remove-result-one-or-many t)
+    (progress-reporter-done clean-prev))
+
+  (let ((tangle (make-progress-reporter "Tangle/Export all source blocks...")))
+    ;; (progn
+    ;;   (let ((files (file-expand-wildcards "part-*.org"))
+    ;;         ;; (files (directory-files "./"
+    ;;         ;;                         nil
+    ;;         ;;                         "^\\([^.]\\|\\.[^.]\\|\\.\\..\\)"))
+    ;;         ;;                         ;;  BIG regexp to exclude . and ..
+    ;;         (here (buffer-name)))
+    ;;     (progn
+    ;;       (message "%s" files)
+    ;;       (mapcar (lambda (file)
+    ;;                 (progn
+    ;;                   (find-file file)
+    ;;                   (org-babel-tangle)
+    ;;                   (kill-buffer)))
+    ;;               files)
+    ;;       (switch-to-buffer here)
+    ;;       (org-babel-tangle))))
+    (org-babel-tangle)
+    (progress-reporter-done tangle))
+
+  ;; (let ((execute-buffer (make-progress-reporter "Execute all source blocks (checking phase)...")))
+  ;;   (progn
+  ;;     (let ((files (file-expand-wildcards "part-*.org"))
+  ;;           (here (buffer-name)))
+  ;;       (progn
+  ;;         (message "%s" files)
+  ;;         (mapcar (lambda (file)
+  ;;                   (progn
+  ;;                     (find-file file)
+  ;;                     (org-babel-execute-buffer)
+  ;;                     (kill-buffer)))
+  ;;                 files)
+  ;;         (switch-to-buffer here)
+  ;;         (org-babel-execute-buffer))))
+  ;;   (progress-reporter-done execute-buffer))
+
+
+#+end_src
+
+
+# unset the Table of Contents
+# because we do not want that appears on the top
+# but only when on want: #+TOC: headlines: X
+#+OPTIONS: toc:nil
+
+
+Le travail d'un ingénieur est de résoudre des problèmes et pour cela il
+puise dans sa boite à outils.  L'idée de ce document est donc de montrer
+comment on construit un /code/ pour répondre à une question issue d'un
+problème d'ingénierie.
+
+#+HTML: <br>
+
+Nous utilisons le langage =C= pour illustrer même si de notre point de
+vue ce n'est pas le /meilleur/ langage pour rapidement concrétiser ses
+idées. La suite logicielle [[https://www.python.org/][Python]]/[[http://www.numpy.org/][Numpy]]/[[https://www.scipy.org/][Scipy]] ou le langage [[https://julialang.org/][Julia]] nous
+apparaissent plus pertinents.
+
+#+HTML: <br>
+
+_*L'important dans la résolution d'un problème est de structurer ses
+idées*_; en d'autres termes l'important est de penser en terme
+d'Algorithmique et de Programmation (voir _[[https://interactivepython.org/courselib/static/thinkcspy/index.html][ici]]_ pour une référence
+complète).
+
+#+TOC: headlines: 3
+#+HTML: <br><br>
+
+Nous proposons de calculer numériquement la dérivée d'une fonction. Pour
+cela, nous allons implémenter une [[https://en.wikipedia.org/wiki/Automatic_differentiation][différentiation automatique]] basée sur
+une /accumulation en avant/ (forward accumulation) utilisant les [[https://fr.wikipedia.org/wiki/Nombre_dual][nombres
+duaux]].
+
+#+HTML: <br>
+
+La différentiation automatique est utilisée dans les réseaux neuronaux
+et autre technologie d'apprentissage semi-automatique (/machine learning/).
+
+#+HTML: <br>
+
+
+
+* Le problème
+
+  Soit une fonction $f$ allant de nombres réels dans les nombres réels,
+
+  \begin{equation*}
+  \begin{array}{lclcl}
+   f &:& \mathbb{R} &\longrightarrow& \mathbb{R}\\
+     & & x &\mapsto& y=f(x)
+  \end{array}
+  \end{equation*}
+
+  et sa dérivée notée $f^\prime$ est définie comme,
+
+  #+name: eq:fprime
+  \begin{equation}
+   f^\prime(x) = \underset{h\rightarrow 0}{\lim} \frac{f(x+h) - f(x)}{h}.
+  \end{equation}
+  Pour une valeur donnée, disons $a$, il est facile d'évaluer la fonction
+  en cette valeur et nous obtenons la nouvelle valeur $b$; explicitement
+  $b=f(a)$.
+
+  #+HTML: <br>
+
+  Si la fonction $f$ est analytique, alors nous pouvons calculer
+  /symboliquement/ (avec un papier et un crayon ou [[https://www.sympy.org/fr/][SymPy]]) la fonction
+  dérivée $f^\prime$ et nous obtenons une formule qui peut être utilisée
+  pour évaluer en la valeur $a$.
+
+  #+HTML: <br>
+
+  Mais dans la plupart des cas, la fonction $f$ ne peut pas être dérivée symboliquement.
+
+  #+HTML: <br><br>
+  #+begin_center
+  Comment faire pour évaluer la dérivée en $a$ ? Comment *calculer*
+  $f^\prime(a)$ ?
+  #+end_center
+  #+HTML: <br><br>
+
+** Différence finie
+
+   En utilisant la définition de la dérivée [[eq:fprime]], la première
+   stratégie est de fixer une valeur $h$ considérée petite comparée à la
+   valeur $a$. Puis d'approcher le calcul dérivée par,
+
+   \begin{equation*}
+    \delta = \frac{f(x+h) - f(x)}{h}.
+   \end{equation*}
+   La question est alors le choix de cette valeur $h$.
+
+*** Exemple
+
+    Considérons le cas simple de la fonction $f(x)=x^2$. La dérivée est
+    trivialement donnée par $f^\prime(x)=2x$. Choisissons quelques valeurs:
+
+    | $a$ |  $h$ | $\delta$ | $f^\prime(a)$ | err. rel. % |
+    |-----+------+----------+---------------+-------------|
+    | 2.1 |  0.1 |      4.3 |           4.2 |        2.38 |
+    | 2.1 | 0.01 |     4.21 |           4.2 |        0.23 |
+    |-----+------+----------+---------------+-------------|
+    | 0.3 |  0.1 |      0.7 |           0.6 |        16.7 |
+    | 0.3 | 0.01 |     0.61 |           0.6 |         1.7 |
+
+    On voit clairement que cette approche n'est pas /stable/ et l'erreur
+    varie fortement en fonction des valeurs choisies. Cette erreur
+    s'explique principalement par le développement de Taylor.
+
+    #+HTML: <br>
+
+    Cette approche pourrait être améliorée en utilisant des ordres plus
+    élevés du développement de Taylor. Nous choisissons une autre méthode.
+
+** Méthode des nombres duaux
+*** Maths élémentaires
+
+    Revenons aux principes élémentaires de dérivation et aux 4 opérations
+    arithmétiques relatives à la dérivation:
+
+    #+name: eq:op-deriv
+    \begin{equation}
+    \begin{array}{lcl}
+     (f+g)^\prime &=& f^\prime + g^\prime\\
+     (f*g)^\prime &=& f^\prime * g + f* g^\prime\\
+     (f-g)^\prime &=& f^\prime - g^\prime\\
+    \displaystyle
+     \left(\frac{f}{g}\right)^\prime
+    &=&
+    \displaystyle
+    \frac{f^\prime * g - f* g^\prime}{g^2}
+    \end{array}
+    \end{equation}
+
+*** Nombres duaux
+
+    Définissons un nouveau _*type* de /nombre/_ composé de 2 réels. Soit
+    $x$ et $y$ deux de ces nombres qui s'écrivent,
+
+    \begin{equation*}
+    \begin{array}{lcl}
+    x &=& (v, d) \\
+    y  &=& (u, p)
+    \end{array}
+    \end{equation*}
+
+    et définissons comment ajouter, multiplier, soustraire et diviser ses
+    nombres,
+
+    #+name: eq:op-dual
+    \begin{equation}
+    \begin{array}{lcll}
+    \texttt{add}(x, y) &=& (v+u ,& d+p) \\
+    \texttt{mul}(x, y) &=& (u*v ,& d*v ~+~ u*p) \\
+    \texttt{sub}(x, y) &=& (u-v ,& d-p) \\
+    \texttt{div}(x, y) &=&
+     (u*v ,& \displaystyle \frac{d*v ~-~ u*p}{p^2})
+    \end{array}
+    \end{equation}
+
+    Nous notons ce nombre $(\texttt{value}, \texttt{deriv})$.
+
+    1. La partie =value= se /comporte/ comme les nombres réels avec les
+       opérations arithmétiques usuelles.
+    2. La partie =deriv= se /comporte/ avec les opérations arithmétiques de
+       la dérivation [[eq:op-deriv]]. Intéressant!
+
+*** Parallèle avec les nombres complexes
+
+    Un nombre complexe peut s'écrire $z = x + iy$ et le nombre imaginaire
+    $i$ est défini tel que $i^2=-1$. À partir de là, en utilisant les règles
+    élémentaires de calculs et les opérations arithmétiques usuelles, il est
+    facile d'obtenir par exemple,
+
+    \begin{equation*}
+    z_1 \times z_2=(x_1*x_2 - y_1*y_2) + i(x_1*y_2 + y_1*x_2)
+    \end{equation*}
+
+    ce que nous écririons:
+
+    \begin{equation*}
+    \texttt{cadd}(z_1, z_2) = (x_1*x_2 - y_1*y_2,~~ x_1*y_2 + y_1*x_2)
+    \end{equation*}
+
+    #+HTML: <br>
+
+    De manière similaire, un nombre dual peut s'écrire $z = x + \varepsilon y$
+    et $\varepsilon$ est défini tel que $\varepsilon^2=0$. Par conséquent,
+    il est facile d'obtenir [[eq:op-dual]], par exemple,
+    \begin{equation*}
+    (x_1 + \varepsilon y_1)\times(x_2 + \varepsilon y_2)
+    =
+    (x_1*x_2) + \varepsilon(x_1*y_2 + y_1*x_2)
+    \end{equation*}
+
+*** Exemple
+
+    Reprenons l'exemple $f(x)=x^2$ et définissons le nombre dual $z=(a,
+    1.)$. Appliquons les opérations avec $z$ au lieu de $x$ dans $f$, cela
+    donne,
+
+    \begin{equation*}
+    \texttt{mul}(z,z) = (a*a, 1.*a + a*1.) = (a*a, 2*a)
+    \end{equation*}
+
+    Donc nous avons évalué la fonction en la valeur $a$ et nous avons aussi
+    obtenu l'évaluation de la dérivée en cette valeur.
+
+    #+HTML: <br>
+
+    _Pourquoi le 1. dans $(a, 1.)$ ?_ Si nous considérons la fonction $f(x)=x$
+    alors en substituant $z$ à la place de $x$ dans $f$, nous obtenons bien
+    que la dérivée vaut 1.
+
+    #+HTML: <br>
+
+    Avec le même argument, une constante $c$ se définit comme $(c, 0.)$
+    puisque sa dérivée est nulle.
+
+    #+HTML: <br>
+
+    Il faut donc distinguer ce qui représente une variable au sens
+    mathématique comme $x$ et une constante au sens mathétmatique comme $c$.
+    *La dérivation se fait par rapport à cette variable $x$.*
+
+    #+HTML: <br><br>
+    #+begin_center
+    *Maintenant, comment programme-t-on cela ?*
+    #+end_center
+    #+HTML: <br><br>
+
+
+* Implémentations
+
+  La version la plus naïve d'un ordinateur ne /comprend/ que les 4 opérations
+  arithmétiques sur les types =int= et =float=. À partir de cela nous
+  allons construire tout ce dont nous avons besoin pour répondre à notre
+  problème: comment calculer en une valeur la dérivée d'une fonction.
+
+** Commençons
+
+   #+name: def:header
+   #+begin_src C :eval no :exports none
+     /* provide printf/scanf and other */
+     #include <stdio.h>
+
+     /* Length maximum for some "string" (array of char) */
+     #define MAXCHAR 1000
+   #+end_src
+
+*** Représenter un nombre dual                                    :v1:
+
+    Il apparaît assez clair que nous allons représenter un nombre dual avec
+    =struct=. Le plus simple est:
+
+    #+name: def:dual
+    #+begin_src C :eval no
+      typedef struct {
+          char name[MAXCHAR];
+          float value;
+          float deriv;
+      } dual;
+    #+end_src
+
+    Comme attendu, la structure possède 2 champs: l'un pour représenter
+    les valeurs =value= et l'autre pour représenter la dérivée
+    =deriv=. Nous ajoutons un champs =name= pour associer un nom en
+    espérant faire de plus jolis affichages.
+
+    #+HTML: <br>
+
+    Pour tester, nous écrivons le corps de notre programme et l'affichage
+    que nous obtenons.
+
+    #+name: main-1
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v1.c" :exports both :results verbatim
+      <<def:header>>
+
+      <<def:dual>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare a dual number */
+          dual z;
+
+          /* fill the fields                                 */
+          /*                                                 */
+          /* sprintf is similar to printf                    */
+          /*  instead of output to the console               */
+          /*  sprintf store the output to its first argument */
+          /*     (here z.name)                               */
+          sprintf(z.name, "%s", "LE nom bien");
+          z.value = a;
+          z.deriv = 1.;
+
+          /* display the dual number */
+          printf("\n");
+          printf("\tName : %s\n", z.name);
+          printf("\tValue: %f\n", z.value);
+          printf("\tDeriv: %f\n", z.deriv);
+
+          printf("Bye.");
+          return 0;
+        }
+    #+end_src
+
+*** Fonction pour définir une variable                            :v2:
+
+    Nous souhaitons avoir une fonction qui prend en argument un nombre
+    réel (=float=) et une chaîne de caractère (=char*=) et retourne un
+    nombre =dual= (=return z;= avec la variable =z= de type =dual=). Nous
+    appelons cette fonction =newvar= et sa *signature* est donc:
+
+    #+name: sig:newvar
+    #+begin_src C :eval no
+      dual newvar(float, char*);
+    #+end_src
+
+    Son implémentation est aussi directe puisque nous avions déjà écrit
+    cela dans le programme précédent.
+
+    #+name: def:newvar
+    #+begin_src C :eval no
+      dual newvar(float val, char* avoile) {
+          dual z;
+          sprintf(z.name, "%s", avoile);
+          z.value = val;
+          z.deriv = 1.;
+          return z;
+      }
+    #+end_src
+
+    #+begin_quote
+    _*WARNING*_: Les /quantités/ =val= et =z= sont des variables au sens
+    informatique, et respectivement de type =float= et
+    =dual=. Cependant, la variable =val= ne modélise pas la notion de
+    variable au sens mathématique, c'est-à-dire qu'au nombre =val= n'est
+    pas associé une dérivée. Et nous construisons justement un code pour
+    cela et le nouveau type =dual= sera une modélisation informatique
+    plus proche de la notion mathématique de variable en considérant la
+    dérivation.
+    #+end_quote
+
+
+    Ainsi nous adaptons nous programme et nous obtenons le même
+    affichage que précédemment.
+
+    #+name: main-2a
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v2a.c" :exports code :results none
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare a dual number */
+          dual z;
+
+
+          /* fill the fields */
+          z = newvar(a, "LE nome bien");
+
+          /* display the dual number */
+          printf("\n");
+          printf("\tName : %s\n", z.name);
+          printf("\tValue: %f\n", z.value);
+          printf("\tDeriv: %f\n", z.deriv);
+
+          printf("Bye.");
+          return 0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+    #+end_src
+
+    Bien évidemment, nous pouvons aussi définir une fonction similaire à
+    =newvar= qui crée une constante. Laissez en exercice, sinon regardez
+    dans le fichier source.
+
+    #+name: sig:newcst
+    #+begin_src C :eval no :exports none
+      dual newcst(float, char*);
+    #+end_src
+
+    #+name: def:newcst
+    #+begin_src C :eval no :exports none
+      dual newcst(float val, char* avoile) {
+          dual z;
+          sprintf(z.name, "%s", avoile);
+          z.value = val;
+          z.deriv = 0.;
+          return z;
+      }
+    #+end_src
+
+    #+name: main-2b
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v2.c" :exports none :results none
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare a dual number */
+          dual z;
+
+
+          /* fill the fields */
+          z = newvar(a, "LE nome bien");
+
+          /* display the dual number */
+          printf("\n");
+          printf("\tName : %s\n", z.name);
+          printf("\tValue: %f\n", z.value);
+          printf("\tDeriv: %f\n", z.deriv);
+
+          printf("Bye.");
+          return 0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+    #+end_src
+
+*** Fonction pour afficher un nombre dual                         :v3:
+
+    Nous souhaitons avoir une fonction qui prend en argument un nombre
+    =dual= et ne retourne rien (=void=). Sa signature est,
+    #+name: sig:print
+    #+begin_src C :eval no
+      void print(dual);
+    #+end_src
+
+    Et nous l'avons déjà implémentée.
+    #+name: def:print
+    #+begin_src C :eval no
+      void print(dual z) {
+          printf("\n");
+          printf("\tName : %s\n", z.name);
+          printf("\tValue: %f\n", z.value);
+          printf("\tDeriv: %f\n", z.deriv);
+      }
+    #+end_src
+
+
+    Au lieu d'afficher à chaque fois le programme complet, nous allons
+    maintenant---pour des raisons de lisibilité---afficher uniquement
+    les modifications que nous avons apportées.
+
+    #+name: main-3
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v3.c" :exports none :results none
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+      <<sig:print>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare a dual number */
+          dual z;
+
+
+          /* fill the fields */
+          z = newvar(a, "LE nome bien");
+
+          /* display the dual number */
+          print(z);
+
+          printf("Bye.");
+          return 0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+
+      <<def:print>>
+    #+end_src
+
+    #+name: diff:2-3
+    #+begin_src shell :results value code :exports results :wrap src diff
+      diff -u Supplementary/main-v2.c Supplementary/main-v3.c | cat
+    #+end_src
+
+** Opérons sur 2 nombres duaux
+
+*** Multiplication                                                      :v4a:
+
+    La signature de la fonction qui permet la multiplication entre deux
+    nombres duaux est assez naturelle. Cette fonction a 2 arguments qui
+    sont des nombres duaux (=dual=) et elle retourne un nombre dual
+    (=return z;= avec =z= une variable de type =dual=).
+
+    #+name: sig:mul
+    #+begin_src C :eval no
+      dual mul(dual, dual);
+    #+end_src
+
+    Et l'implémentation est donnée par [[eq:op-dual]].
+
+    #+name: def:mul
+    #+begin_src  C :eval no
+      dual mul(dual z1, dual z2) {
+          dual z;
+          sprintf(z.name, "(%s*%s)", z1.name, z2.name);
+
+          z.value = z1.value * z2.value;
+          z.deriv = (z1.deriv * z2.value) + (z1.value * z2.deriv);
+
+          return z;
+      }
+    #+end_src
+
+    Pour tester cette nouvelle fonction, nous écrivons le programme
+    principal ci-dessous, que noux exécutons et nous obtenons bien le
+    résultat attendu.
+
+    #+name: main-4a
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v4a.c" :exports results :results verbatim
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+      <<sig:print>>
+
+      <<sig:mul>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare a dual number */
+          dual z;
+
+
+          /* fill the fields */
+          z = newvar(a, "x");
+
+          /* display the dual number */
+          print(z);
+
+          dual zz = mul(z, z);
+          print(zz);
+
+          printf("Bye.");
+          return 0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+
+      <<def:print>>
+
+      <<def:mul>>
+    #+end_src
+
+    Nous obtenons bien pour la fonction $x^2$ évaluée en =2.1= la valeur
+    $2.1^2=$ src_emacs-lisp{(* 2.1 2.1)} {{{results(=4.41=)}}} (à l'arrondi près) et sa dérivée
+    $2\times 2.1=$ src_emacs-lisp{(* 2 2.1)} {{{results(=4.2=)}}}.
+
+    #+name: diff:3-4a
+    #+begin_src shell :results value code :exports results :wrap src diff
+      diff -u Supplementary/main-v3.c Supplementary/main-v4a.c | cat
+    #+end_src
+
+    Sur le même principe, il est facile d'implémenter les opérations
+    manquantes =add=, =sub= et =div=. Laissez en exercice, sinon
+    regardez dans le fichier source.
+
+    #+name: sig:add
+    #+begin_src C :eval no :exports none
+      dual add(dual, dual);
+    #+end_src
+    #+name: sig:sub
+    #+begin_src C :eval no :exports none
+      dual sub(dual, dual);
+    #+end_src
+    #+name: sig:div
+    #+begin_src C :eval no :exports none
+      dual div(dual, dual);
+    #+end_src
+
+    #+name: def:add
+    #+begin_src C :eval no :exports none
+      dual add(dual z1, dual z2) {
+          dual z;
+          sprintf(z.name, "(%s+%s)", z1.name, z2.name);
+
+          z.value = z1.value + z2.value;
+          z.deriv = z1.deriv + z2.deriv;
+
+          return z;
+      }
+    #+end_src
+
+    #+name: def:sub
+    #+begin_src C :eval no :exports none
+      dual sub(dual z1, dual z2) {
+          dual z;
+          sprintf(z.name, "(%s-%s)", z1.name, z2.name);
+
+          z.value = z1.value - z2.value;
+          z.deriv = z1.deriv - z2.deriv;
+
+          return z;
+      }
+    #+end_src
+
+    #+name: def:div
+    #+begin_src C :eval no :exports none
+      dual div(dual z1, dual z2) {
+          dual z;
+          sprintf(z.name, "(%s/%s)", z1.name, z2.name);
+
+          z.value = z1.value / z2.value;
+          z.deriv = ((z1.deriv * z2.value) - (z1.value * z2.deriv)) / (z2.value * z2.value);
+
+          return z;
+      }
+    #+end_src
+
+*** Vérifications des 4 opérations                                       :v4b:
+
+    Nous définissons aussi une valeur /variable/ (=newvar=). C'est une
+    variable informatique arbitrairement nommée =z= et d'autre part nous
+    lui attribuons le nom ="x"= dans notre modélisation des nombres
+    duaux.
+
+    #+HTML: <br>
+
+    Nous définissons une valeur constante (=newcst=). C'est une variable
+    informatique arbitrairement nommée =c= et d'autre part nous lui
+    attribuons le nom ="c"= dans notre modélisation des nombres duaux.
+
+    #+HTML: <br>
+
+    Puis nous définissons un programme principal qui affiche:
+
+    #+name: main-4b
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v4.c" :exports results :results verbatim
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+      <<sig:print>>
+
+      <<sig:mul>>
+      <<sig:add>>
+      <<sig:sub>>
+      <<sig:div>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare dual numbers */
+          dual z, c;
+
+          z = newvar(a, "x");
+          c = newcst(1.2, "c");
+
+          /* display the dual number */
+          print(z);
+          print(c);
+
+          print(mul(z, c));
+          print(add(z, z));
+          print(sub(c, z));
+          print(div(add(z, c), sub(c, z)));
+
+          printf("Bye.");
+          return 0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+
+      <<def:print>>
+
+      <<def:mul>>
+
+      <<def:add>>
+
+      <<def:sub>>
+
+      <<def:div>>
+    #+end_src
+
+    À partir de ces exemples, nous pouvons tester si notre
+    implémentation est correcte. *Il faut faire plusieurs tests* pour
+    s'assurer que tout fonctionne comme espéré.
+
+    #+HTML: <br>
+
+    Nous commençons à voir l'intérêt d'avoir un /champ/ =name= dans
+    notre modélisation des nombres duaux.
+
+** Test avec une fonction plus /compliquée/
+
+   Nous souhaitons vérifier que notre implémentation fait bien les
+   calculs escomptés. Pour cela nous voulons définir une fonction
+   suffisamment /compliquée/ et en même temp nous voulons pouvoir
+   facilement vérifier le résultat.
+
+   #+HTML: <br>
+
+   Une fonction toute indiquée est la fonction exponentielle car sa
+   dérivée est elle-même,
+
+   \begin{equation*}
+   \left(e^x\right)^\prime = e^x
+   \end{equation*}
+
+   Cependant, l'ordinateur ne /sait/ pas implicitement comment calculer
+   la fonction exponentielle. Qu'à cela ne tienne!
+
+   #+HTML: <br>
+
+   Nous avons besoin d'être capable d'évaluer la fonction exponentielle
+   à partir uniquement des quatre opérations arithmétiques. Or la
+   fonction exponentielle s'écrit aussi sous la forme d'une [[https://fr.wikipedia.org/wiki/Fonction_exponentielle#Par_une_s%25C3%25A9rie][série]]
+   convergente (et partout!),
+
+   \begin{equation*}
+   e^x = \sum_{k=0}^\infty \frac{x^k}{k!}
+   \end{equation*}
+
+   Par simplicité ici, nous tronquerons arbitrairement la somme à 20
+   termes.
+
+*** Fonction exponentielle                                               :v5:
+
+    Il est assez clair que notre fonction =exponential= aura comme
+    argument un nombre =dual= et retournera un nombre =dual=, donc sa
+    signature est,
+
+    #+name: sig:exp
+    #+begin_src C :eval no
+      #define NEXP 20
+      dual exponential(dual);
+    #+end_src
+
+    Et son implémentation est simple mais mérite un peu d'attention. La
+    somme $\sum$ va être naturellement transformée en boucle
+    =for=. Par ailleurs, cette somme commence par =k=0= mais comme nous
+    allons accumuler son résultat, nous allons initialiser
+    l'accumulateur (variable informatique =expx=) à la valeur =k=0= et
+    faire commcer la boucle à =k=1=.
+
+    #+name: def:exp
+    #+begin_src C :eval no
+      dual exponential(dual x) {
+
+          /* temporary variables */
+          dual expx  = newcst(1., "");
+          dual xk    = newcst(1., "");
+          dual kfac  = newcst(1., "");
+
+          float k;
+          for (k=1; k<=NEXP; k++) {
+              dual kk = newcst(k, "");
+
+              xk   = mul(xk, x);      /* x, x*x, x*x*x, etc. => eval x^k */
+              kfac = mul(kfac, kk);   /* 1, 1*2, 1*2*3, etc. => eval k!  */
+
+              dual term_k = div(xk, kfac);
+
+              /* update the Sum with another term */
+              expx = add(expx, term_k);
+
+              /* to avoid segmentation fault (because of ugly C)   */
+              /* instead of accumalating all the ( and ) and +,*,/ */
+              sprintf(expx.name, "");
+              sprintf(xk.name, "");
+              sprintf(kfac.name, "");
+              sprintf(kk.name, "");
+          }
+
+          /* pretty print the name */
+          sprintf(expx.name, "~(e^(%s))", x.name);
+          return expx;
+      }
+    #+end_src
+
+    Avec un papier et un crayon, et en écrivant les premiers termes, il
+    est rapidement clair pourquoi =expx=, =xk= et =kfrac= sont
+    initialisés avec la fonction =newcst= et non la fonction =newvar=.
+
+    #+HMTL: <br>
+
+    Finalement, nous écrivons un programme principal pour tester.
+
+    #+name: main-5
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v5.c" :exports results :results verbatim
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+      <<sig:print>>
+
+      <<sig:mul>>
+      <<sig:add>>
+      <<sig:sub>>
+      <<sig:div>>
+
+      <<sig:exp>>
+
+      int main () {
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare dual numbers */
+          dual z, c;
+
+          z = newvar(a, "x");
+          c = newcst(1.2, "c");
+
+          /* display the dual number */
+          print(z);
+          print(c);
+
+          print(exponential(z));
+          print(exponential(add(mul(mul(c, z), z), c)));
+
+          printf("Bye.");
+          return  0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+
+      <<def:print>>
+
+      <<def:mul>>
+
+      <<def:add>>
+
+      <<def:sub>>
+
+      <<def:div>>
+
+      <<def:exp>>
+    #+end_src
+
+    Il est clair que nous obtenons bien le bon résultat, même pour une
+    fonction non-triviale. Notre implémentation n'utilise que les 4
+    opérations arithmétiques.
+
+*** Retour des nombres complexes
+
+    Nous pourrions facilement étendre cela à toutes les fonctions
+    (sinus, cosinus, tangente, etc.). Par exemple, nous pourrions
+    calculer la fonction sinus en remarquant que le sinus est la partie
+    imaginaire d'une fonction exponentielle complexe. Par conséquent,
+    nous aurions besoin d'implémenter une structure représentant les
+    nombres complexes puis d'implémenter les 4 opérations arithmétiques
+    pour ce nouveau /type/ =complex=. Et enfin modifier notre structure
+    =dual= en remplaçant le type =float= par ce type =complex=.
+
+    #+HTML: <br>
+
+    #+begin_center
+    *Cette amélioration utilisant les nombres complexes est un bon exercice!*
+    #+end_center
+
+*** Autre fonction
+
+    Nous avons choisi la fonction exponentielle mais nous aurions aussi
+    pu choisir la fonction racine carrée comme illustration. Elle se
+    calcule par la [[https://fr.wikipedia.org/wiki/M%25C3%25A9thode_de_H%25C3%25A9ron][méthode de Héron]] comme,
+
+    \begin{equation*}
+    \left\{
+    \begin{array}{lcl}
+        x_{0} &=& a \\
+        x_{n+1}  &=& \displaystyle 0.5 \left( x_n + \frac{a}{x_n} \right)
+    \end{array}
+    \right.
+    \end{equation*}
+
+    #+begin_center
+    *Son implémentation et la vérification est un bon exercice!*
+    #+end_center
+
+** Pour aller plus loin
+
+   Le langage =C= possède une biobliothèque standard définisssant des
+   fonctions mathématiques: =math.h=. Nous souhaiterions utiliser cette
+   bibliotèque pour calculer des fonctions connues plutôt que de tout
+   re-implémenter par nous-même.
+
+*** Exemple: fonction exponentielle (encore)                             :v6:
+
+    Pour illustrer notre propos, étendons la fonction =exp= de
+    =math.h=. Nous voulons que la signature reste la même, à savoir:
+
+    #+name: sig:dexp
+    #+begin_src C :eval no
+      #include <math.h>
+      dual dexp(dual);
+    #+end_src
+
+    Nous choisissons arbitraiment le nom =dexp=, mais il nous semble
+    /parlant/: l'extension de =exp= au type =dual=.
+
+    Pour l'implémentation, il faut commencer par se rappeler la
+    définition mathématique:
+
+   \begin{equation*}
+   \left(e^u\right)^\prime = u^\prime e^u
+   \end{equation*}
+
+   Ce qui se traduit /naturellement/ par:
+
+   #+name: def:dexp
+   #+begin_src C :eval no
+     dual dexp(dual u) {
+         dual z;
+         sprintf(z.name, "(e^(%s))", u.name);
+
+         z.value = exp(u.value);
+         z.deriv = u.deriv * z.value;
+
+         return z;
+     }
+   #+end_src
+
+   Il faut *noter* que la fonction =exp= de la bibliothèque =math.h= a
+   la signature:
+
+   #+begin_src C :eval no
+     double exp(double);
+   #+end_src
+
+   or =double= et =float= sont des types /compatibles/. Et la
+   multiplication =u.deriv * z.value= se fait dans le type
+   =float=. Finalement, nous comparons nos 2 versions.
+
+    #+name: main-6
+    #+begin_src C :noweb yes :tangle "Supplementary/main-v6.c" :exports results :results verbatim :flags -lm
+      <<def:header>>
+
+      <<def:dual>>
+
+            /* signature of the function */
+            /* defined after the main    */
+      <<sig:newvar>>
+      <<sig:newcst>>
+      <<sig:print>>
+
+      <<sig:mul>>
+      <<sig:add>>
+      <<sig:sub>>
+      <<sig:div>>
+
+      <<sig:exp>>
+
+      <<sig:dexp>>
+
+      int main () {
+          printf("Hi");
+
+          /* the value we are interrested in */
+          float a = 2.1;
+
+          /* declare dual numbers */
+          dual z, c;
+
+          z = newvar(a, "x");
+          c = newcst(1.2, "c");
+
+          /* display the dual number */
+          print(z);
+          print(c);
+
+          printf("\n# by +,*,-,/\n");
+          print(exponential(add(mul(mul(c, z), z), c)));
+
+          printf("\n# by math.h\n");
+          print(dexp(add(mul(mul(c, z), z), c)));
+
+          printf("Bye.");
+          return  0;
+        }
+
+
+      /*  DEFINITION of the functions/subprogram */
+
+      <<def:newvar>>
+
+      <<def:newcst>>
+
+      <<def:print>>
+
+      <<def:mul>>
+
+      <<def:add>>
+
+      <<def:sub>>
+
+      <<def:div>>
+
+      <<def:exp>>
+
+      <<def:dexp>>
+    #+end_src
+
+    Sur ce même principe, nous pouvons étendre toutes les fonctions qui
+    sont dans la bibliothèque =math.h= et dont nous connaissons les
+    formules de dérivations, comme sinus, cosinus, tangente, etc.
+
+*** Intervalle de définitions des nombres
+
+    Pour connaître la taille mémoire utilisée pour représenter un nombre
+    entier en mémoire, le plus simple est d'utiliser =sizeof(int)=
+    (retourne en octet/byte). En général, ceci est de 4 octets soit 32
+    bits. Seul les entiers dans l'intervalle $\left[-2^{31} ~;~ 2^{31} -
+    1\right]$ sont représentables dans l'ordinateur. Le plus grand
+    entier est donc src_emacs-lisp{(- (expt 2 31) 1)}. Il est possible
+    de représenter un nombre 2 fois plus grand en considérant le type
+    =unsigned= c'est-à-dire uniquement les entiers positifs. Pour des
+    nombres encore plus grands, il faut utiliser le type =long= et
+    =unsigned long=.
+
+    #+HTML: <br>
+
+    Mais qu'en est-il du type =float= ?
+
+    #+HTML: <br>
+
+    Ceci dépend ! La virgule est /flottante/ et donc il y a une
+    précision variable.
+
+    #+begin_src C :tangle "Supplementary/isnan.c" :exports both :results verbatim :flags -lm
+      #include <stdio.h>
+      #include <math.h>
+      #include <limits.h>
+      int main () {
+          float x=1., f=1., ff;
+          while (!isinf(f)) {
+              ff = f;
+
+              f = f * x;
+
+              x = x + 1.;
+              printf("%.0f!  \t= %f\n", x-1, f);
+          }
+          return 0;
+      }
+    #+end_src
+
+
+    #+begin_src scheme :eval no :exports none :results none
+      (use-modules (ice-9 format))
+
+      (define (fac n)
+        (if (<= n 0)
+            1
+            (* n (fac (- n 1)))))
+
+      (define (seq start end)
+        (define (go acc end)
+          (let* ((n (car acc))
+                 (m (1+ n)))
+            (if (> m end)
+                (reverse acc)
+              (go (append `(,m) acc) end))))
+        (go `(,start) end))
+
+
+      (map (lambda (n)
+             (format #t "~a! \t= ~a\n" n (fac n)))
+           (seq 1 37))
+    #+end_src
+
+    À comparer avec la séquence exacte:
+    #+begin_example
+      1!      = 1
+      2!      = 2
+      3!      = 6
+      4!      = 24
+      5!      = 120
+      6!      = 720
+      7!      = 5040
+      8!      = 40320
+      9!      = 362880
+      10!     = 3628800
+      11!     = 39916800
+      12!     = 479001600
+      13!     = 6227020800
+      14!     = 87178291200
+      15!     = 1307674368000
+      16!     = 20922789888000
+      17!     = 355687428096000
+      18!     = 6402373705728000
+      19!     = 121645100408832000
+      20!     = 2432902008176640000
+      21!     = 51090942171709440000
+      22!     = 1124000727777607680000
+      23!     = 25852016738884976640000
+      24!     = 620448401733239439360000
+      25!     = 15511210043330985984000000
+      26!     = 403291461126605635584000000
+      27!     = 10888869450418352160768000000
+      28!     = 304888344611713860501504000000
+      29!     = 8841761993739701954543616000000
+      30!     = 265252859812191058636308480000000
+      31!     = 8222838654177922817725562880000000
+      32!     = 263130836933693530167218012160000000
+      33!     = 8683317618811886495518194401280000000
+      34!     = 295232799039604140847618609643520000000
+      35!     = 10333147966386144929666651337523200000000
+      36!     = 371993326789901217467999448150835200000000
+      37!     = 13763753091226345046315979581580902400000000
+    #+end_example
+
+    Donc nous voyons que la représentation en nombre flottant fait un
+    calcul /faux/ pour factorielle 14 (=14!=), et ensuite les erreurs se
+    cumulent. Ceci est attendu et la précision dépend de ce que l'on
+    cherche à calculer. *Pour les calculs /standards/, nous sommes très
+    rarement dans ce cas.* Ici, nous testons les limites.
+
+    #+HTML: <br>
+
+    Par ailleurs, nous voyons que nous ne pouvons pas utiliser plus de
+    36 termes dans notre calcul de l'exponentielle utilisant la série.
+
+
+
+
+   #+HTML: <br><br>
+
+
+* Outils utilisés pour générer ce document
+
+  Le document est écrit avec [[https://www.gnu.org/software/emacs/][GNU Emacs]] et [[https://orgmode.org/][Org-mode]]. À partir d'un unique
+  fichier source =example.org= tout est généré avec la commande:
+  #+name: shell:generate-all
+  #+begin_src shell :eval no
+    emacs -batch example.org -f org-babel-execute-buffer
+  #+end_src
+  ou en ouvrant le document =example.org= avec Emacs puis en pressant
+  =Control c Control v b=.
+
+
+  #+name: export-to-html
+  #+begin_src emacs-lisp :exports none :results none
+    (let ((org->html (make-progress-reporter "Exporting to HTML...")))
+      (org-html-export-to-html)
+      (progress-reporter-done org->html))
+  #+end_src
+
+** Erreur de coloration du code
+   Avec la configuration d'Emacs par défaut, vous risquez d'avoir ce
+   message d'erreur:
+   #+begin_example
+     Please install htmlize from https://github.com/hniksic/emacs-htmlize
+   #+end_example
+   dans ce cas, nous vous suggérons de lancer la commande---[[https://git-scm.com/book/fr/v2/Les-bases-de-Git-D%25C3%25A9marrer-un-d%25C3%25A9p%25C3%25B4t-Git][récuperation]] de
+   la [[https://github.com/hniksic/emacs-htmlize.git][dépendance manquante]]:
+   #+name: fix:htmlize
+   #+begin_src shell :results none :eval no
+     git clone https://github.com/hniksic/emacs-htmlize.git /tmp/emacs-htmlize
+   #+end_src
+   et voilà. Sinon ouvrez et lisez le fichier =example.org= ou ouvrez un [[https://github.com/zimoun/][boggue]].
+
+** Erreur d'exportation
+   #+begin_example
+   Loading /home/simon/.guix-profile/share/emacs/site-lisp/gettext-autoloads.el (source)...
+   Symbol’s function definition is void: org-outline-overlay-data
+   #+end_example
+   Changements incompatibles dans la version 9.2. Voir [[https://orgmode.org/Changes.html][ici]].
+
+** Fake git commit                                                 :noexport:
+
+   #+name: git
+   #+begin_src shell :tangle ".git-commit-all.sh"
+     #!/bin/bash
+
+     filename=example
+
+     if [[ ! -d .git ]]
+     then
+         echo "Init."
+         git init
+     else
+         echo "Big dance already done."
+         echo "File modified:"
+         git status -u -s
+         echo "Automatic commit."
+         git commit -am "automatic message"
+         exit 0
+     fi
+
+     git add ${filename}.org
+     git commit -am "Org source"
+
+     #emacs ${filename}.org -f org-babel-execute-buffer
+
+     git add ${filename}.html
+     git commit -am "HTML page"
+
+     for i in $(seq 1 6)
+     do
+         cp Supplementary/main-v${i}.c main.c
+         git add main.c
+         git commit -am "version $i"
+     done
+
+     git add Supplementary/*
+     git commit -am "add Supplementary materials"
+
+     git add .git-commit-all.sh
+     git commit -am "add Git repo generator script"
+   #+end_src
