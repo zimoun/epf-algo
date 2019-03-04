@@ -10,6 +10,11 @@ typedef struct {
     float deriv;
 } dual;
 
+      /* signature of the function */
+      /* defined after the main    */
+dual newvar(float, char*);
+dual newcst(float, char*);
+
 int main () {
     printf("Hi");
 
@@ -19,15 +24,9 @@ int main () {
     /* declare a dual number */
     dual z;
 
-    /* fill the fields                                 */
-    /*                                                 */
-    /* sprintf is similar to printf                    */
-    /*  instead of output to the console               */
-    /*  sprintf store the output to its first argument */
-    /*     (here z.name)                               */
-    sprintf(z.name, "%s", "LE nom bien");
-    z.value = a;
-    z.deriv = 1.;
+
+    /* fill the fields */
+    z = newvar(a, "LE nome bien");
 
     /* display the dual number */
     printf("\n");
@@ -38,3 +37,22 @@ int main () {
     printf("Bye.");
     return 0;
   }
+
+
+/*  DEFINITION of the functions/subprogram */
+
+dual newvar(float val, char* avoile) {
+    dual z;
+    sprintf(z.name, "%s", avoile);
+    z.value = val;
+    z.deriv = 1.;
+    return z;
+}
+
+dual newcst(float val, char* avoile) {
+    dual z;
+    sprintf(z.name, "%s", avoile);
+    z.value = val;
+    z.deriv = 0.;
+    return z;
+}
